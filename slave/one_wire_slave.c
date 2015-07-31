@@ -1,4 +1,5 @@
 #include "./one_wire_slave.h"
+#include "./delay_helpers.h"
 #include <avr/io.h>
 #include <avr/cpufunc.h>
 #include <avr/interrupt.h>
@@ -94,12 +95,15 @@ inline void wait_until_high() {
 // Waits for up to max_us .  Returns 0 if pin is low.  Returns 1 if max is hit.
 inline uint8_t wait_until_low_timed(uint8_t max_us) {
 	// This loop takes 5 cycles without NOPs (on my compiler)
+	max_us = DELAY_ROUND_UP(max_us, 5);
 	for(;;) {
 		if (pin_is_low()) return 0;
-		_NOP();
-		_NOP();
-		_NOP();
-		--max_us;
+		//_NOP();
+		//_NOP();
+		//_NOP();
+		//--max_us;
+		DELAY_EXTRA_NOPS(5);
+		max_us -= DELAY_DECR_USECS(5);
 		if (!max_us) return 1;
 	}
 }
@@ -107,12 +111,15 @@ inline uint8_t wait_until_low_timed(uint8_t max_us) {
 // Waits for up to max_us.  Returns 0 if pin is high.  Returns 1 if max is hit.
 inline uint8_t wait_until_high_timed(uint8_t max_us) {
 	// This loop takes 5 cycles without NOPs (on my compiler)
+	max_us = DELAY_ROUND_UP(max_us, 5);
 	for(;;) {
 		if (pin_is_high()) return 0;
-		_NOP();
-		_NOP();
-		_NOP();
-		--max_us;
+		///_NOP();
+		///_NOP();
+		///_NOP();
+		///--max_us;
+		DELAY_EXTRA_NOPS(5);
+		max_us -= DELAY_DECR_USECS(5);
 		if (!max_us) return 1;
 	}
 }
