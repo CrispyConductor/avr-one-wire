@@ -1,16 +1,16 @@
 /*
  * An AVR library for communication on a Dallas 1-Wire bus.
- * 
+ *
  * Features (?)
  * ------------
- * 
+ *
  * * It uses a single GPIO pin (no UARTs).
  * * It does not use dynamic memory allocation. The only drawback is that you
  *   have to know the number of devices on the bus in advance.
  * * It is polled, not interrupt-driven. There are several sections of code
- *   that must run for a specific amount of time and have to disable 
+ *   that must run for a specific amount of time and have to disable
  *   interrupts globally.
- * * Only the MATCH_ROM, SEARCH_ROM, and SKIP_ROM commands have been 
+ * * Only the MATCH_ROM, SEARCH_ROM, and SKIP_ROM commands have been
  *   implemented. At this point other commands would be trivial to add.
  *
  * Directions
@@ -18,18 +18,18 @@
  *
  * 1. Modify F_CPU, DALLAS_PORT, DALLAS_DDR, DALLAS_PORT_IN, DALLAS_PIN, and
  *    DALLAS_NUM_DEVICES to match your application.
- * 2. In your code, first run dallas_search_identifiers() to populate the 
+ * 2. In your code, first run dallas_search_identifiers() to populate the
  *    the list of identifiers with the devices on your bus.
  * 3. ???
  * 4. Profit!
  *
  * Cautions/Caveats
  * ----------------
- * 
+ *
  * The 1-Wire bus is *very* timing-dependent. If you are having issues and it's
- * not an electrical/connectivity one it is most likely a timing issue. The 
+ * not an electrical/connectivity one it is most likely a timing issue. The
  * worst function in this regard is dallas_read(). The delays chosen there are a
- * compromise between having to wait for the bus to return to 5V after being 
+ * compromise between having to wait for the bus to return to 5V after being
  * pulled to ground (determined by the RC time constant) while also needing to
  * read the bus before the 15 usec time slot expires.
  *
@@ -44,13 +44,13 @@
  *
  * April 30, 2010
  */
- 
+
 /******************************************************************************
  * Copyright © 2010, Mike Roddewig (mike@dietfig.org).
  * All rights reserved.
  *
  * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License v3 as published 
+ * it under the terms of the GNU General Public License v3 as published
  * by the Free Software Foundation.
  *
  * This program is distributed in the hope that it will be useful,
@@ -67,6 +67,7 @@
 #include <stdint.h>
 
 #include "dallas_one_wire.h"
+#include "delay_helpers.h"
 
 #include <util/atomic.h>
 #include <util/delay.h>
@@ -85,128 +86,192 @@ DALLAS_IDENTIFIER_LIST_t identifier_list;
 #define DALLAS_IDENTIFIER_DONE 0x01
 #define DALLAS_IDENTIFIER_SEARCH_ERROR 0x02
 
+#define pin_is_low() (!(DALLAS_PORT_IN & _BV(DALLAS_PIN)))
+#define pin_is_high() (DALLAS_PORT_IN & _BV(DALLAS_PIN))
+
+inline void set_bus_high() {
+	// Set pin as input
+	DALLAS_DDR &= ~_BV(DALLAS_PIN);
+	// Make sure internal pullup is disabled
+	DALLAS_PORT &= ~_BV(DALLAS_PIN);
+}
+
+inline void set_bus_low() {
+	// Configure pin as output (should already be low if initialized)
+	DALLAS_DDR |= _BV(DALLAS_PIN);
+	DALLAS_PORT &= ~_BV(DALLAS_PIN);
+}
+
 ///////////////
 // Functions //
 ///////////////
 
-void dallas_write(uint8_t bit) {
+// Makes sure the bus is high for the duration of the given microseconds
+// Returns 0 if the bus is high for the whole time, and 1 if the bus went low
+inline uint8_t ensure_bus_high(uint8_t max_us) {
+	// This loop takes 5 cycles without NOPs (on my compiler)
+	max_us = DELAY_ROUND_UP(max_us, 5);
+	for(;;) {
+		if (pin_is_low()) return 1;
+		//_NOP();
+		//_NOP();
+		//_NOP();
+		//--max_us;
+		DELAY_EXTRA_NOPS(5);
+		max_us -= DELAY_DECR_USECS(5);
+		if (!max_us) return 0;
+	}
+}
+
+// Ensures that the bus is already high, or transitions to the high state at most
+// once, for the duration of max_us.  Returns 0 if the bus transitions high at most
+// once.  Returns 1 if the bus transitions back to low, or the bus never transitions
+// high.
+inline uint8_t ensure_bus_transition_high(uint8_t max_us) {
+	max_us = DELAY_ROUND_UP(max_us, 5);
+	// Wait until bus is high
+	// Loop is 5 cycles without padding
+	for(;;) {
+		if (pin_is_high()) break;
+		DELAY_EXTRA_NOPS(5);
+		max_us -= DELAY_DECR_USECS(5);
+		if (!max_us) return 1;
+	}
+	// Ensure the bus does not return low
+	// Loop is 5 cycles without padding
+	for(;;) {
+		if (pin_is_low()) return 1;
+		DELAY_EXTRA_NOPS(5);
+		max_us -= DELAY_DECR_USECS(5);
+		if (!max_us) return 0;
+	}
+}
+
+// Returns 0 on success
+// Returns 1 if arbitration failed or bus error
+uint8_t dallas_write(uint8_t bit) {
 	if (bit == 0x00) {
 		ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
-			// Configure the pin as an output.
-			DALLAS_DDR |= _BV(DALLAS_PIN);
-		
-			// Pull the bus low.
-			DALLAS_PORT &= ~_BV(DALLAS_PIN);
-		
+			// Make sure the bus is high
+			set_bus_high();
+			if (pin_is_low()) return 1;
+
+			set_bus_low();
+
 			// Wait the required time.
 			_delay_us(60);
-		
+
 			// Release the bus.
-			DALLAS_PORT |= _BV(DALLAS_PIN);
-			
+			set_bus_high();
+
 			// Let the rest of the time slot expire.
-			_delay_us(30);
+			if (ensure_bus_transition_high(30)) return 1;
 		}
 	}
 	else {
 		ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
-			// Configure the pin as an output.
-			DALLAS_DDR |= _BV(DALLAS_PIN);
-		
-			// Pull the bus low.
-			DALLAS_PORT &= ~_BV(DALLAS_PIN);
-		
+			// Make sure the bus is high
+			set_bus_high();
+			if (pin_is_low()) return 1;
+
+			set_bus_low();
+
 			// Wait the required time.
 			_delay_us(10);
-		
+
 			// Release the bus.
-			DALLAS_PORT |= _BV(DALLAS_PIN);
-			
+			set_bus_high();
+
 			// Let the rest of the time slot expire.
-			_delay_us(50);
+			if (ensure_bus_transition_high(50)) return 1;
 		}
 	}
+	return 0;
 }
 
+// Returns 0 or 1 on success, 2 if bus error
 uint8_t dallas_read(void) {
 	uint8_t reply;
-	
+
 	ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
-		// Configure the pin as an output.
-		DALLAS_DDR |= _BV(DALLAS_PIN);
-	
-		// Pull the bus low.
-		DALLAS_PORT &= ~_BV(DALLAS_PIN);
-	
+		// Make sure the bus is high
+		DALLAS_DDR &= ~_BV(DALLAS_PIN);
+		if (pin_is_low()) return 1;
+
+		set_bus_low();
+
 		// Wait the required time.
 		_delay_us(2);
-	
-		// Configure as input.
-		DALLAS_DDR &= ~_BV(DALLAS_PIN);
-		
+
+		set_bus_high();
+
 		// Wait for a bit.
 		_delay_us(13);
-		
+
 		if ((DALLAS_PORT_IN & _BV(DALLAS_PIN)) == 0x00) {
 			reply = 0x00;
 		}
 		else {
 			reply = 0x01;
 		}
-		
+
 		// Let the rest of the time slot expire.
-		_delay_us(45);
+		if(ensure_bus_transition_high(45)) return 2;
 	}
-	
+
 	return reply;
 }
 
+void dallas_setup() {
+	DALLAS_PORT &= ~_BV(DALLAS_PIN);
+}
+
 // Resets the bus and returns 0x01 if a slave indicates present, 0x00 otherwise.
+// Returns 2 on bus error
 uint8_t dallas_reset(void) {
 	uint8_t reply;
-	
+	// Ensure internal pullup is disabled
+	DALLAS_PORT &= ~_BV(DALLAS_PIN);
+
 	// Reset the slave_reply variable.
 	reply = 0x00;
-	
+
 	ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
-	
-		// Configure the pin as an output.
-		DALLAS_DDR |= _BV(DALLAS_PIN);
-	
+
 		// Pull the bus low.
-		DALLAS_PORT &= ~_BV(DALLAS_PIN);
-	
+		set_bus_low();
+
 		// Wait the required time.
 		_delay_us(500); // 500 uS
-	
-		// Switch to an input, enable the pin change interrupt, and wait.
-		DALLAS_DDR &= ~_BV(DALLAS_PIN);
 
-		_delay_us(7);
-		
+		// Switch to an input and wait.
+		set_bus_high();
+
+		if (ensure_bus_transition_high(7)) return 0x02;
+
 		if ((DALLAS_PORT_IN & _BV(DALLAS_PIN)) == 0x00) {
-			reply = 0x00;
+			reply = 0x02;
 		} else {
 
 			_delay_us(63);
-		
+
 			if ((DALLAS_PORT_IN & _BV(DALLAS_PIN)) == 0x00) {
 				reply = 0x01;
 			}
-		
-			_delay_us(420);
+
+			if (ensure_bus_transition_high(420)) return 0x02;
 		}
 	}
-	
+
 	return reply;
 }
 
 void dallas_write_byte(uint8_t byte) {
 	uint8_t position;
-	
+
 	for (position = 0x00; position < 0x08; position++) {
 		dallas_write(byte & 0x01);
-		
+
 		byte = (byte >> 1);
 	}
 }
@@ -214,13 +279,13 @@ void dallas_write_byte(uint8_t byte) {
 uint8_t dallas_read_byte(void) {
 	uint8_t byte;
 	uint8_t position;
-	
+
 	byte = 0x00;
-	
+
 	for (position = 0x00; position < 0x08; position++) {
 		byte += (dallas_read() << position);
 	}
-	
+
 	return byte;
 }
 
@@ -228,7 +293,7 @@ uint8_t dallas_read_byte(void) {
 void dallas_drive_bus(void) {
 	// Configure the pin as an output.
 	DALLAS_DDR |= _BV(DALLAS_PIN);
-	
+
 	// Set the bus high.
 	DALLAS_PORT |= _BV(DALLAS_PIN);
 }
@@ -237,14 +302,14 @@ void dallas_match_rom(DALLAS_IDENTIFIER_t * identifier) {
 	uint8_t identifier_bit;
 	uint8_t current_byte;
 	uint8_t current_bit;
-	
+
 	dallas_reset();
 	dallas_write_byte(MATCH_ROM_COMMAND);
-	
+
 	for (identifier_bit = 0x00; identifier_bit < DALLAS_NUM_IDENTIFIER_BITS; identifier_bit++) {
 		current_byte = identifier_bit / 8;
 		current_bit = identifier_bit - (current_byte * 8);
-		
+
 		dallas_write(identifier->identifier[current_byte] & _BV(current_bit));
 	}
 }
@@ -359,7 +424,7 @@ DALLAS_IDENTIFIER_LIST_t * get_identifier_list(void) {
 
 void dallas_write_buffer(uint8_t * buffer, uint8_t buffer_length) {
 	uint8_t i;
-	
+
 	for (i = 0x00; i < buffer_length; i++) {
 		dallas_write_byte(buffer[i]);
 	}
@@ -367,7 +432,7 @@ void dallas_write_buffer(uint8_t * buffer, uint8_t buffer_length) {
 
 void dallas_read_buffer(uint8_t * buffer, uint8_t buffer_length) {
 	uint8_t i;
-	
+
 	for (i = 0x00; i < buffer_length; i++) {
 		buffer[i] = dallas_read_byte();
 	}

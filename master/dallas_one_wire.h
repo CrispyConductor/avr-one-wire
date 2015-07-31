@@ -3,13 +3,13 @@
  *
  * The main documentation is in dallas_one_wire.c.
  */
- 
+
 /******************************************************************************
  * Copyright © 2010, Mike Roddewig (mike@dietfig.org).
  * All rights reserved.
  *
  * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License v3 as published 
+ * it under the terms of the GNU General Public License v3 as published
  * by the Free Software Foundation.
  *
  * This program is distributed in the hope that it will be useful,
@@ -31,14 +31,16 @@
 /////////////
 
 // AVR clock frequency
-#define F_CPU 16000000UL // 16 MHz
+// #define F_CPU 16000000UL // 16 MHz
 
 // Pin defines
 
-#define DALLAS_PORT 	PORTC
-#define DALLAS_PORT_IN 	PINC
-#define DALLAS_DDR 	DDRC
-#define DALLAS_PIN 	4
+//#define DALLAS_PORT 	PORTC
+//#define DALLAS_PORT_IN 	PINC
+//#define DALLAS_DDR 	DDRC
+//#define DALLAS_PIN 	4
+
+#include "./one_wire_conf.h"
 
 // The number of devices on the bus.
 #define DALLAS_NUM_DEVICES 10
@@ -68,6 +70,8 @@ typedef struct {
 ///////////////
 // Functions //
 ///////////////
+
+void dallas_setup(void);
 
 // Writes the LSB of the argument to the bus.
 void dallas_write(uint8_t);
