@@ -34,6 +34,9 @@ the counter go below 0.
 
 The F_CPU macro must be defined, and must be a multiple of 1,000,000 up to 16,000,000.
 
+Be warned: If the compiler tries to unroll the resulting loop, timing could break.
+Check the assembly generated to ensure it looks sane.
+
 */
 
 // Divides numer by denom, rounding up (such that constant values will be optimized away)
@@ -55,11 +58,11 @@ The F_CPU macro must be defined, and must be a multiple of 1,000,000 up to 16,00
 // Number of cycles in each microsecond
 #define CYCLES_PER_USEC (F_CPU / 1000000UL)
 
-#define DELAY_DECR_USECS(loop_cycles) ((uint8_t)INT_DIV_ROUND_UP(loop_cycles, CYCLES_PER_USEC))
+#define DELAY_DECR_USECS(loop_cycles) ((uint8_t)NEXT_HIGHEST_POWER_OF_2(INT_DIV_ROUND_UP(loop_cycles, CYCLES_PER_USEC)))
 #define DELAY_NUM_EXTRA_CYCLES(loop_cycles) (DELAY_DECR_USECS(loop_cycles) * CYCLES_PER_USEC - loop_cycles)
 #define DELAY_EXTRA_NOPS(loop_cycles) DELAY_CYCLES_EXACT(DELAY_NUM_EXTRA_CYCLES(loop_cycles))
-#define DELAY_ROUND_DOWN(usecs, loop_cycles) (usecs & ~(POWER_OF_2_MASK(NEXT_HIGHEST_POWER_OF_2(DELAY_DECR_USECS(loop_cycles)))>>1))
-#define DELAY_ROUND_UP(usecs, loop_cycles) (DELAY_ROUND_DOWN(usecs, loop_cycles) == usecs) ? usecs : ((usecs | (POWER_OF_2_MASK(NEXT_HIGHEST_POWER_OF_2(DELAY_DECR_USECS(loop_cycles)))>>1))+1)
+#define DELAY_ROUND_DOWN(usecs, loop_cycles) (usecs & ~(POWER_OF_2_MASK(DELAY_DECR_USECS(loop_cycles))>>1))
+#define DELAY_ROUND_UP(usecs, loop_cycles) (DELAY_ROUND_DOWN(usecs, loop_cycles) == usecs) ? usecs : ((usecs | (POWER_OF_2_MASK(DELAY_DECR_USECS(loop_cycles))>>1))+1)
 
 
 #endif
