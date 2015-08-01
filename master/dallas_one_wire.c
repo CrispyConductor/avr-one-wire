@@ -102,6 +102,9 @@ inline void set_bus_low() {
 	DALLAS_PORT &= ~_BV(DALLAS_PIN);
 }
 
+// This flag is set to 1 when a bus error occurs
+uint8_t dallas_bus_error = 0;
+
 ///////////////
 // Functions //
 ///////////////
@@ -147,14 +150,13 @@ inline uint8_t ensure_bus_transition_high(uint8_t max_us) {
 	}
 }
 
-// Returns 0 on success
-// Returns 1 if arbitration failed or bus error
-uint8_t dallas_write(uint8_t bit) {
+// Can set dallas_bus_error flag
+void dallas_write(uint8_t bit) {
 	if (bit == 0x00) {
 		ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
 			// Make sure the bus is high
 			set_bus_high();
-			if (pin_is_low()) return 1;
+			if (pin_is_low()) { dallas_bus_error = 1; return; }
 
 			set_bus_low();
 
@@ -165,14 +167,14 @@ uint8_t dallas_write(uint8_t bit) {
 			set_bus_high();
 
 			// Let the rest of the time slot expire.
-			if (ensure_bus_transition_high(30)) return 1;
+			if (ensure_bus_transition_high(30)) { dallas_bus_error = 1; return; }
 		}
 	}
 	else {
 		ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
 			// Make sure the bus is high
 			set_bus_high();
-			if (pin_is_low()) return 1;
+			if (pin_is_low()) { dallas_bus_error = 1; return; }
 
 			set_bus_low();
 
@@ -183,20 +185,21 @@ uint8_t dallas_write(uint8_t bit) {
 			set_bus_high();
 
 			// Let the rest of the time slot expire.
-			if (ensure_bus_transition_high(50)) return 1;
+			if (ensure_bus_transition_high(50)) { dallas_bus_error = 1; return; }
 		}
 	}
 	return 0;
 }
 
-// Returns 0 or 1 on success, 2 if bus error
+// Returns 0 or 1 on success
+// Sets dallas_bus_error flag
 uint8_t dallas_read(void) {
 	uint8_t reply;
 
 	ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
 		// Make sure the bus is high
 		DALLAS_DDR &= ~_BV(DALLAS_PIN);
-		if (pin_is_low()) return 1;
+		if (pin_is_low()) { dallas_bus_error = 1; return 0; }
 
 		set_bus_low();
 
@@ -216,7 +219,7 @@ uint8_t dallas_read(void) {
 		}
 
 		// Let the rest of the time slot expire.
-		if(ensure_bus_transition_high(45)) return 2;
+		if(ensure_bus_transition_high(45)) { dallas_bus_error = 1; return 0; }
 	}
 
 	return reply;
@@ -227,9 +230,12 @@ void dallas_setup() {
 }
 
 // Resets the bus and returns 0x01 if a slave indicates present, 0x00 otherwise.
-// Returns 2 on bus error
+// Can set dallas_bus_error flag
 uint8_t dallas_reset(void) {
 	uint8_t reply;
+	// Unset bus error
+	dallas_bus_error = 0;
+
 	// Ensure internal pullup is disabled
 	DALLAS_PORT &= ~_BV(DALLAS_PIN);
 
@@ -247,7 +253,7 @@ uint8_t dallas_reset(void) {
 		// Switch to an input and wait.
 		set_bus_high();
 
-		if (ensure_bus_transition_high(7)) return 0x02;
+		if (ensure_bus_transition_high(7)) { dallas_bus_error = 1; return 0; }
 
 		if ((DALLAS_PORT_IN & _BV(DALLAS_PIN)) == 0x00) {
 			reply = 0x02;
@@ -259,7 +265,7 @@ uint8_t dallas_reset(void) {
 				reply = 0x01;
 			}
 
-			if (ensure_bus_transition_high(420)) return 0x02;
+			if (ensure_bus_transition_high(420)) { dallas_bus_error = 1; return 0; }
 		}
 	}
 
@@ -271,6 +277,7 @@ void dallas_write_byte(uint8_t byte) {
 
 	for (position = 0x00; position < 0x08; position++) {
 		dallas_write(byte & 0x01);
+		if (dallas_bus_error) return;
 
 		byte = (byte >> 1);
 	}
@@ -284,6 +291,7 @@ uint8_t dallas_read_byte(void) {
 
 	for (position = 0x00; position < 0x08; position++) {
 		byte += (dallas_read() << position);
+		if (dallas_bus_error) return 0;
 	}
 
 	return byte;
@@ -304,18 +312,22 @@ void dallas_match_rom(DALLAS_IDENTIFIER_t * identifier) {
 	uint8_t current_bit;
 
 	dallas_reset();
+	if (dallas_bus_error) return;
 	dallas_write_byte(MATCH_ROM_COMMAND);
+	if (dallas_bus_error) return;
 
 	for (identifier_bit = 0x00; identifier_bit < DALLAS_NUM_IDENTIFIER_BITS; identifier_bit++) {
 		current_byte = identifier_bit / 8;
 		current_bit = identifier_bit - (current_byte * 8);
 
 		dallas_write(identifier->identifier[current_byte] & _BV(current_bit));
+		if (dallas_bus_error) return;
 	}
 }
 
 void dallas_skip_rom(void) {
 	dallas_reset();
+	if (dallas_bus_error) return;
 	dallas_write_byte(SKIP_ROM_COMMAND);
 }
 
@@ -357,11 +369,15 @@ uint8_t dallas_search_identifiers(void) {
 	while(1) {
 		current_bit = 0;
 		dallas_reset();
+		if (dallas_bus_error) return 3;
 		dallas_write_byte(SEARCH_ROM_COMMAND);
+		if (dallas_bus_error) return 3;
 		// Iterate through all bits
 		while(current_bit < DALLAS_NUM_IDENTIFIER_BITS) {
 			received_two_bits = (dallas_read() << 1);
+			if (dallas_bus_error) return 3;
 			received_two_bits += dallas_read();
+			if (dallas_bus_error) return 3;
 			if (current_bit < current_diverge_bit) {
 				// Follow the same path.  Ignore the received bits and go in the same previous direction.
 				current_bit_value = GET_IDENT_BIT(identifier_list.identifiers[current_device - 1], current_bit);
@@ -391,6 +407,7 @@ uint8_t dallas_search_identifiers(void) {
 				// No devices on this branch match?
 				break;
 			}
+			if (dallas_bus_error) return 3;
 			current_bit++;
 		}
 		// If we didn't complete a path, it was an error (or no device found)
@@ -427,6 +444,7 @@ void dallas_write_buffer(uint8_t * buffer, uint8_t buffer_length) {
 
 	for (i = 0x00; i < buffer_length; i++) {
 		dallas_write_byte(buffer[i]);
+		if (dallas_bus_error) return;
 	}
 }
 
@@ -435,5 +453,23 @@ void dallas_read_buffer(uint8_t * buffer, uint8_t buffer_length) {
 
 	for (i = 0x00; i < buffer_length; i++) {
 		buffer[i] = dallas_read_byte();
+		if (dallas_bus_error) return;
 	}
+}
+
+void dallas_hold_txn() {
+	set_bus_low();
+}
+
+void dallas_begin_txn() {
+	uint8_t ret;
+	for (;;) {
+		if (!ensure_bus_high(500)) break;
+		_delay_us(123);
+	}
+	dallas_hold_txn();
+}
+
+void dallas_end_txn() {
+	set_bus_high();
 }

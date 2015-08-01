@@ -54,6 +54,8 @@
 #define SKIP_ROM_COMMAND	0xCC
 #define SEARCH_ROM_COMMAND 	0xF0
 
+extern uint8_t dallas_bus_error;
+
 ////////////////
 // Structures //
 ////////////////
@@ -74,7 +76,7 @@ typedef struct {
 void dallas_setup(void);
 
 // Writes the LSB of the argument to the bus.
-uint8_t dallas_write(uint8_t);
+void dallas_write(uint8_t);
 
 // Write a byte to the bus.
 void dallas_write_byte(uint8_t);
@@ -114,5 +116,16 @@ uint8_t dallas_search_identifiers(void);
 
 // Returns the list of identifiers.
 DALLAS_IDENTIFIER_LIST_t * get_identifier_list(void);
+
+// Makes sure the bus has been free for a set period of time
+// Pulls the bus low after this
+// Note that bus errors can still occur in case of arbitration, and txn should then be ended and retried
+void dallas_begin_txn();
+
+// Pulls the bus low to prepare for another reset in the same transaction
+void dallas_hold_txn();
+
+// Frees the bus from the current transaction
+void dallas_end_txn();
 
 #endif

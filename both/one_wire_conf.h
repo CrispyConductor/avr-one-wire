@@ -1,0 +1,1 @@
+../master/one_wire_conf.h

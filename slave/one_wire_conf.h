@@ -42,9 +42,9 @@
 
 
 // Debug LED
-//#define OWS_DEBUG_LED_DDR DDRA
-//#define OWS_DEBUG_LED_PORT PORTA
-//#define OWS_DEBUG_LED_PIN 7
+#define OWS_DEBUG_LED_DDR DDRA
+#define OWS_DEBUG_LED_PORT PORTA
+#define OWS_DEBUG_LED_PIN 7
 
 
 #endif
