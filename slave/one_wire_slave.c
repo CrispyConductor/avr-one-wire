@@ -6,7 +6,9 @@
 #include <util/atomic.h>
 #include <util/delay.h>
 #include <stdint.h>
-
+#ifdef OWS_ID_EEPROM_ADDR
+#include <avr/eeprom.h>
+#endif
 
 
 
@@ -412,10 +414,17 @@ void ows_setup_timer() {
 void ows_setup() {
 	// Initialize ows_id
 	uint8_t i;
+#ifdef OWS_ID
 	uint8_t ows_id_src[] = OWS_ID;
 	for (i = 0; i < 8; i++) {
 		ows_id.identifier[i] = ows_id_src[i];
 	}
+#endif
+#ifdef OWS_ID_EEPROM_ADDR
+	ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+		eeprom_read_block(ows_id.identifier, OWS_ID_EEPROM_ADDR, 8);
+	}
+#endif
 
 	// Initialize the timer
 	ows_setup_timer();

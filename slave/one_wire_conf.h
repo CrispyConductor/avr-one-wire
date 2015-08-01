@@ -38,8 +38,9 @@
 //#define DALLAS_TIMER_VECT TIM1_COMPA_vect
 
 // Our own ID
-#define OWS_ID { 0x88, 0x22, 0x44, 0xaa, 0xbb, 0x00, 0xff, 0x77 };
-
+// Define one of these two
+//#define OWS_ID { 0x88, 0x22, 0x44, 0xaa, 0xbb, 0x00, 0xff, 0x77 };
+#define OWS_ID_EEPROM_ADDR (const uint8_t *)0
 
 // Debug LED
 #define OWS_DEBUG_LED_DDR DDRA
