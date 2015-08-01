@@ -4,6 +4,7 @@
 #include <string.h>
 #include "./one_wire_slave.h"
 #include "./dallas_one_wire.h"
+#include "./maxim_crc.h"
 
 #ifdef OWS_DEBUG_LED_PORT
 #define led_on() OWS_DEBUG_LED_PORT &= ~_BV(OWS_DEBUG_LED_PIN);
@@ -48,7 +49,7 @@ inline void led_blink_byte(uint8_t b) {
 DALLAS_IDENTIFIER_t id_buf;
 
 void test_master() {
-	uint8_t buf[2];
+	uint8_t buf[9];
 	dallas_begin_txn();
 	memcpy(id_buf.identifier, "\x28\xb4\xc5\xb0\x06\x00\x00\x75", 8);
 	uint8_t r = dallas_reset();
@@ -59,10 +60,15 @@ void test_master() {
 	dallas_reset();
 	dallas_match_rom(&id_buf);
 	dallas_write_byte(0xbe);
-	dallas_read_buffer(buf, 2);
+	dallas_read_buffer(buf, 9);
 	dallas_hold_txn();
-	led_blink_byte(buf[1]);
-	led_blink_byte(buf[0]);
+	//led_blink_byte(buf[1]);
+	//led_blink_byte(buf[0]);
+	led_blink_byte(buf[8]);
+	uint8_t crc = mcrc8_push_buf(0, buf, 8);
+	led_blink_byte(crc);
+	crc = mcrc8_push_byte(crc, crc);
+	led_blink_byte(crc);
 	dallas_end_txn();
 }
 
