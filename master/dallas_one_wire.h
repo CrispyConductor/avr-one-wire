@@ -74,7 +74,7 @@ typedef struct {
 void dallas_setup(void);
 
 // Writes the LSB of the argument to the bus.
-void dallas_write(uint8_t);
+uint8_t dallas_write(uint8_t);
 
 // Write a byte to the bus.
 void dallas_write_byte(uint8_t);
