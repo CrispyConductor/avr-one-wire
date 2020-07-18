@@ -32,5 +32,7 @@ void handle_pin_isr();
 // Functions to implement
 void handle_ows_command(uint8_t command);
 
+extern uint8_t ows_error_flag;
+
 #endif
 

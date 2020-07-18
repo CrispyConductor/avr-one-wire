@@ -225,6 +225,15 @@ uint8_t dallas_read(void) {
 	return reply;
 }
 
+// Keeps reading bits until a 1 bit is sent
+// Sets dallas_bus_error on error
+void dallas_read_until_1(void) {
+	uint8_t curBit;
+	do {
+		curBit = dallas_read();
+	} while (!curBit && !dallas_bus_error);
+}
+
 void dallas_setup() {
 	DALLAS_PORT &= ~_BV(DALLAS_PIN);
 }
@@ -311,7 +320,10 @@ void dallas_match_rom(DALLAS_IDENTIFIER_t * identifier) {
 	uint8_t current_byte;
 	uint8_t current_bit;
 
-	dallas_reset();
+	if (!dallas_reset()) {
+		dallas_bus_error = 1;
+		return;
+	}
 	if (dallas_bus_error) return;
 	dallas_write_byte(MATCH_ROM_COMMAND);
 	if (dallas_bus_error) return;
@@ -326,7 +338,10 @@ void dallas_match_rom(DALLAS_IDENTIFIER_t * identifier) {
 }
 
 void dallas_skip_rom(void) {
-	dallas_reset();
+	if (!dallas_reset()) {
+		dallas_bus_error = 1;
+		return;
+	}
 	if (dallas_bus_error) return;
 	dallas_write_byte(SKIP_ROM_COMMAND);
 }
@@ -458,11 +473,14 @@ void dallas_read_buffer(uint8_t * buffer, uint8_t buffer_length) {
 }
 
 void dallas_hold_txn() {
+	dallas_bus_error = 0;
 	set_bus_low();
 }
 
 void dallas_begin_txn() {
 	uint8_t ret;
+	dallas_bus_error = 0;
+	set_bus_high();
 	for (;;) {
 		if (!ensure_bus_high(500)) break;
 		_delay_us(123);
@@ -471,5 +489,6 @@ void dallas_begin_txn() {
 }
 
 void dallas_end_txn() {
+	dallas_bus_error = 0;
 	set_bus_high();
 }

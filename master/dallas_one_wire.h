@@ -43,7 +43,7 @@
 #include "./one_wire_conf.h"
 
 // The number of devices on the bus.
-#define DALLAS_NUM_DEVICES 10
+#define DALLAS_NUM_DEVICES 16
 
 // The number of bits in an identifier.
 #define DALLAS_NUM_IDENTIFIER_BITS 64
@@ -53,6 +53,7 @@
 #define MATCH_ROM_COMMAND 	0x55
 #define SKIP_ROM_COMMAND	0xCC
 #define SEARCH_ROM_COMMAND 	0xF0
+#define READ_ROM_COMMAND	0x33
 
 extern uint8_t dallas_bus_error;
 
@@ -86,6 +87,9 @@ void dallas_write_buffer(uint8_t * buffer, uint8_t buffer_length);
 
 // Read a bit from the bus and returns it as the LSB.
 uint8_t dallas_read(void);
+
+// Reads bits until a 1 bit is received
+void dallas_read_until_1(void);
 
 // Reads a byte from the bus.
 uint8_t dallas_read_byte(void);

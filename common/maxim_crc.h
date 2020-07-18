@@ -1,6 +1,8 @@
 #ifndef MAXIM_CRC_H
 #define MAXIM_CRC_H
 
+#include <stdint.h>
+
 // Routines for dealing with maxim crc codes
 
 // Adds 1 bit to the crc, returns the new crc
@@ -33,6 +35,37 @@ inline uint8_t mcrc8_push_byte(uint8_t crc, uint8_t byte) {
 inline uint8_t mcrc8_push_buf(uint8_t crc, uint8_t * buf, uint8_t len) {
 	while (len) {
 		crc = mcrc8_push_byte(crc, *buf);
+		++buf;
+		--len;
+	}
+	return crc;
+}
+
+
+inline uint16_t mcrc16_push_bit(uint16_t crc, uint8_t bit) {
+	uint8_t cur_8th_stage = crc & 0x0001;
+	uint8_t input_bit = bit ^ cur_8th_stage;
+	// Rotate the crc
+	crc >>= 1;
+	// If the bit is a 1, the middle bits needs to be flipped and a 1 shifted in
+	if (input_bit) {
+		crc ^= 0xA001;
+	}
+	return crc;
+}
+
+inline uint16_t mcrc16_push_byte(uint16_t crc, uint8_t byte) {
+	uint8_t ctr;
+	for (ctr = 8; ctr; --ctr) {
+		crc = mcrc16_push_bit(crc, byte & 0x01);
+		byte >>= 1;
+	}
+	return crc;
+}
+
+inline uint16_t mcrc16_push_buf(uint16_t crc, uint8_t * buf, uint8_t len) {
+	while (len) {
+		crc = mcrc16_push_byte(crc, *buf);
 		++buf;
 		--len;
 	}
